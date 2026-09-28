@@ -57,6 +57,11 @@ This plugin is developed under the same Build-Agent policy as the portal repo
   a stubbed check of `Utils` logic without SDK `import`s).
 - Functional checks (actual rename, sidecar handling, stack grouping, undo) MUST be done manually
   in Lightroom Classic — list them in `AGENTS.todo.md` as a manual checklist.
+- **After any file change inside the `.lrplugin` folder** (delete / restore / rename, or a new
+  script referenced from `Info.lua`): **quit and restart Lightroom Classic completely** (closing
+  the window is not enough). LR scans the plugin folder only at startup; otherwise a menu click
+  fails with `No script by the name <file>.lua` even though the file is on disk. Fallback: remove
+  and re-add the plugin in File → Plug-in Manager. Details: see the incident note in `AGENTS.todo.md`.
 - One `withWriteAccessDo` block per run → single Undo step.
 
 ## Naming Pattern Spec

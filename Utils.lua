@@ -4,6 +4,7 @@
 -- Module returns a table of pure helper functions:
 --   * parsePattern / resolvePattern  - token-based naming pattern
 --   * formatSeq / formatDate         - sequence padding and date formatting
+--   * photoKey                       - stable STRING identity for one photo
 --   * stackKey                       - grouping key per stack (unstacked = size-1 stack)
 --   * findCollisions                 - case-insensitive duplicate detection
 local LrDate = import 'LrDate'
@@ -130,17 +131,67 @@ end
 -- Stack grouping
 --------------------------------------------------------------------------------
 
+-- Return a stable STRING identity key for one photo.
+-- LrPhoto objects must not be used as Lua table keys directly: the SDK may hand
+-- out fresh wrapper objects (and/or objects that compare equal) for the same or
+-- different photos, which silently collapses table lookups such as
+-- `photoInfo[photo]` and `seen[member]`. A plain string keyed by the catalog
+-- uuid is stable across wrapper instances.
+--
+-- The virtual-copy flag (and, when present, the copy name) is appended so a
+-- master and its virtual copies never share a key. Falls back to `path`, then
+-- to `tostring(photo)`. Never returns nil.
+function Utils.photoKey(photo)
+    if photo == nil then return "P:nil" end
+    -- Read the SDK metadata DIRECTLY (like Utils.stackKey): `getRawMetadata`
+    -- may yield, and a plain `pcall` is a C function that cannot yield, so
+    -- wrapping these reads threw "Yielding is not allowed within a C or
+    -- metamethod call" and silently degraded the key to `tostring(photo)`.
+    -- Every branch below falls through to a non-empty string, so this never
+    -- returns nil or "".
+    local uuid = photo:getRawMetadata("uuid")
+    local isVC = (photo:getRawMetadata("isVirtualCopy") == true)
+    local copyName = nil
+    if isVC then
+        copyName = photo:getRawMetadata("copyName")
+    end
+    if type(uuid) == "string" and uuid ~= "" then
+        local k = "P:" .. uuid
+        if isVC then
+            k = k .. "|vc|" .. tostring(copyName or "")
+        else
+            k = k .. "|m"
+        end
+        return k
+    end
+    local path = photo:getRawMetadata("path")
+    if type(path) == "string" and path ~= "" then
+        local k = "P:path:" .. path
+        if isVC then
+            k = k .. "|vc|" .. tostring(copyName or "")
+        end
+        return k
+    end
+    return "P:tostring:" .. tostring(photo)
+end
+
 -- Return a stable grouping key for a photo.
 -- Stacked photos are grouped via their stack's top photo: every member reports
 -- the same `topOfStackInFolderContainingPhoto`, whose `uuid` forms the key.
--- Unstacked photos get a unique key (their path), so each becomes its own
--- size-1 "stack". Virtual copies share the master's stack via the same top.
+-- Unstacked photos get a unique key (path AND photo identity), so each becomes
+-- its own size-1 "stack". Virtual copies share the master's stack via the same
+-- top.
+--
+-- Only a literal boolean `true` counts as stacked: a truthy non-boolean value
+-- must not route an unstacked photo down the stacked path. Every fallback is
+-- unique per photo, so no two distinct photos can ever collapse onto the same
+-- (empty) key.
 function Utils.stackKey(photo)
-    local isInStack = photo:getRawMetadata("isInStackInFolder")
+    local isInStack = (photo:getRawMetadata("isInStackInFolder") == true)
     if isInStack then
         local top = photo:getRawMetadata("topOfStackInFolderContainingPhoto")
         local topUuid = top and top:getRawMetadata("uuid")
-        if topUuid then
+        if topUuid ~= nil and topUuid ~= "" then
             return "S:" .. tostring(topUuid)
         end
         -- Fallback: derive a stable key from the (sorted) member UUIDs.
@@ -148,16 +199,24 @@ function Utils.stackKey(photo)
         local ids = {}
         for _, m in ipairs(members) do
             local u = m:getRawMetadata("uuid")
-            if u then table.insert(ids, tostring(u)) end
+            if u ~= nil and u ~= "" then table.insert(ids, tostring(u)) end
         end
         table.sort(ids)
-        return "S:" .. table.concat(ids, "|")
+        if #ids > 0 then
+            return "S:" .. table.concat(ids, "|")
+        end
+        -- No top and no member ids: make this photo its own group instead of
+        -- collapsing every such photo onto the shared "S:" bucket.
+        return "S:" .. Utils.photoKey(photo)
     end
+    -- Unstacked: unique per photo. Include both path and photo identity so two
+    -- distinct photos can never produce the same key (even with an empty path).
     local path = photo:getRawMetadata("path")
-    if path and path ~= "" then
-        return "U:" .. path
+    local pkey = Utils.photoKey(photo)
+    if path ~= nil and path ~= "" then
+        return "U:" .. path .. "|" .. pkey
     end
-    return "U:" .. tostring(photo:getRawMetadata("uuid") or tostring(photo))
+    return "U:" .. pkey
 end
 
 --------------------------------------------------------------------------------

@@ -17,6 +17,23 @@ local RenameDialog = require "RenameDialog"
 local RenameCore = {}
 
 --------------------------------------------------------------------------------
+-- Diagnostic logging (temporary).
+-- TODO(diagnostics): remove before release
+-- Writes to ~/Documents/lrClassicLogs/StackRenamerLog.log. Every call is
+-- wrapped so a broken logger can never change control flow or throw.
+--------------------------------------------------------------------------------
+local LrLogger = import 'LrLogger' -- TODO(diagnostics): remove before release
+local diagLogger = LrLogger('StackRenamerLog') -- TODO(diagnostics): remove before release
+diagLogger:enable("logfile") -- TODO(diagnostics): remove before release
+
+local function diag(fmt, ...) -- TODO(diagnostics): remove before release
+    local ok, msg = pcall(string.format, fmt, ...)
+    if ok then
+        pcall(function() diagLogger:trace(msg) end)
+    end
+end
+
+--------------------------------------------------------------------------------
 -- Phase wrapper: run one stage of run() in its own LrTasks.pcall (the only
 -- protected-call form that allows the SDK calls to yield) and, on failure,
 -- rethrow with the stage name attached to the message.
@@ -42,7 +59,7 @@ local function buildGroups(photos)
             g = {
                 key = key,
                 photos = {},
-                seen = {},              -- dedup set (LrPhoto objects as keys)
+                seenKeys = {},          -- dedup set of stable photo keys (strings)
                 representativeTime = nil,   -- dateTimeOriginal of the rep. member
                 representativeName = nil,   -- current base name of the rep. member
                 hasReal = false,            -- has at least one non-virtual-copy file
@@ -55,15 +72,16 @@ local function buildGroups(photos)
         -- selected photo itself is always included (some LR builds report the
         -- member list without the photo itself).
         local members = { photo }
-        if photo:getRawMetadata("isInStackInFolder") then
+        if photo:getRawMetadata("isInStackInFolder") == true then
             local ms = photo:getRawMetadata("stackInFolderMembers")
             if ms then
                 for _, m in ipairs(ms) do table.insert(members, m) end
             end
         end
         for _, m in ipairs(members) do
-            if not g.seen[m] then
-                g.seen[m] = true
+            local mkey = Utils.photoKey(m)
+            if not g.seenKeys[mkey] then
+                g.seenKeys[mkey] = true
                 table.insert(g.photos, m)
                 if m:getRawMetadata("isVirtualCopy") ~= true then
                     g.hasReal = true
@@ -126,7 +144,8 @@ local function performRename(catalog, plan, metaField)
                     done = done + 1
                     local fileName = photo:getFormattedMetadata("fileName") or "?"
                     local base = entry.base
-                    if perPhoto and perPhoto[photo] then base = perPhoto[photo] end
+                    local pkey = Utils.photoKey(photo)
+                    if perPhoto and perPhoto[pkey] then base = perPhoto[pkey] end
                     if base and base ~= "" then
                         progress:setCaption("Schreibe Namen: " .. fileName)
                         local ok, err = LrTasks.pcall(function()
@@ -177,6 +196,43 @@ local function performRename(catalog, plan, metaField)
 end
 
 --------------------------------------------------------------------------------
+-- Diagnostic dump helpers (temporary).
+-- TODO(diagnostics): remove before release
+--------------------------------------------------------------------------------
+local function diagDumpPhotos(photos)
+    local okCount = pcall(function() diag("getTargetPhotos: %d photo(s)", #photos) end)
+    if not okCount then return end
+    for i, photo in ipairs(photos) do
+        local ok, fileName, inStack, sKey, pKey = pcall(function()
+            return (photo:getFormattedMetadata("fileName") or "?"),
+                photo:getRawMetadata("isInStackInFolder"),
+                Utils.stackKey(photo),
+                Utils.photoKey(photo)
+        end)
+        if ok then
+            diag("  [%d] file=%s isInStackInFolder=%s stackKey=%s photoKey=%s",
+                i, tostring(fileName), tostring(inStack), tostring(sKey), tostring(pKey))
+        else
+            diag("  [%d] <read failed: %s>", i, tostring(fileName))
+        end
+    end
+end
+
+local function diagDumpGroups(groups)
+    local okCount = pcall(function() diag("buildGroups: %d group(s)", #groups) end)
+    if not okCount then return end
+    for i, g in ipairs(groups) do
+        local names = {}
+        for _, m in ipairs(g.photos or {}) do
+            local ok, fn = pcall(function() return m:getFormattedMetadata("fileName") or "?" end)
+            table.insert(names, ok and tostring(fn) or "?")
+        end
+        diag("  group[%d] key=%s #photos=%d hasReal=%s members=%s",
+            i, tostring(g.key), #(g.photos or {}), tostring(g.hasReal), table.concat(names, ", "))
+    end
+end
+
+--------------------------------------------------------------------------------
 -- Entry point invoked by RenameStacks.lua (inside an async task).
 --------------------------------------------------------------------------------
 function RenameCore.run()
@@ -185,6 +241,8 @@ function RenameCore.run()
     local photos = phaseOk("getTargetPhotos", function()
         return catalog:getTargetPhotos()
     end)
+    -- TODO(diagnostics): remove before release
+    diagDumpPhotos(photos)
     if #photos == 0 then
         LrDialogs.message("Keine Fotos ausgewählt",
             "Bitte wähle Fotos oder einen Ordner im Filmstreifen bzw. Folders-Panel aus, "
@@ -195,6 +253,8 @@ function RenameCore.run()
     local groups = phaseOk("buildGroups", function()
         return buildGroups(photos)
     end)
+    -- TODO(diagnostics): remove before release
+    diagDumpGroups(groups)
     if #groups == 0 then
         LrDialogs.message("Keine umbenennbaren Fotos",
             "Die Auswahl enthält nur virtuelle Kopien oder keine umbenennbaren Dateien.", "warning")

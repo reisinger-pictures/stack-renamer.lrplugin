@@ -5,41 +5,84 @@ confirmed by an independent verifier subagent are removed. Source plan:
 `/Users/florianreisinger/.opencode/plan/stack-renamer-plugin.md`.
 
 ## Status
-- **AKTIV: 2 UI-Bugs vom User gemeldet (2026-09-28), Fix läuft (general subagent).** Siehe
-  "Offene Bugs". Bitte noch nicht als "fertig" werten — beide Bugs sind in Lightroom unbestätigt.
-- Implementation (Info / Utils / RenameCore / RenameDialog / RenameStacks + syntax): geschrieben
-  und `luac -p`-clean, aber **die direkte Umbenennung wurde nie in Lightroom ausgeführt**.
-  Die Prüfung "verified DONE" unten bezieht sich auf Syntax + Stub-Logik, NICHT auf echtes
-  Umbenennen in Lightroom.
-- Renaming-Workflow ist seit `1b8d657` der **F2-2-Schritte-Ansatz** (Metadaten-Feld + Lightroom
-  F2), NICHT `renamePhotoFile`. Details siehe "Verworfen".
-- Functional verification needs Lightroom Classic (not available here) — see Manual Verification.
+- **Bug 1 + Bug 2 GELÖST und vom User in Lightroom bestätigt (2026-09-28, „hat geklappt").** Siehe
+  "Behobene Bugs" unten. Der LR-getestete Stand ist gesondert committet, damit er nachvollziehbar
+  bleibt.
+- **Bug 2 war NICHT die Gruppierung, sondern die Vorschau-Widget.** Der Lightroom-Log
+  (`~/Documents/lrClassicLogs/StackRenamerLog.log`, Lauf 2026-09-28 19:13) bewies korrekte Daten:
+  `getTargetPhotos: 69`, `buildGroups: 65 group(s)`, `photoInfo entries=72`, `preview lines=50`,
+  `notFound=0` in ALLEN Plan-Einträgen. Sichtbar war trotzdem nur EINE Zeile, weil der an
+  `props.preview` **gebundene `static_text`** nicht mit dem mehrzeiligen String mitwuchs (blieb eine
+  Zeile hoch). Fix: Die Vorschau ist jetzt ein read-only `edit_field` (`height_in_lines = 200`) in
+  einem `scrolled_view` mit fester Höhe (`height = 420`).
+  **Regel für künftige Fehlersuche in diesem Repo:** Bei „nur eine Zeile / nur ein Foto" ZUERST das
+  Logfile lesen. Sind die Zahlen dort korrekt (`notFound=0`), ist die UI das Problem, nicht die
+  Gruppierungslogik — dann nicht an `buildGroups`/`stackKey` schrauben.
+- **Plugin lädt** (2026-09-28): Der „No script by the name RenameStacks.lua"-Fehler war der gecachte
+  Plugin-Scan aus dem fehlgeschlagenen Revert. Nach Lightroom-Neustart steht `4) Stack Renamer` in
+  der Plugin-Liste (`lrc_console.log`), keine „No script"-Fehler mehr. Details siehe Vorfall unten.
+- Renaming-Workflow ist der **F2-2-Schritte-Ansatz** (Metadaten-Feld + Lightroom F2), NICHT
+  `renamePhotoFile`. Er wurde am 2026-09-28 erfolgreich durchgeführt (Dateien im Katalog heißen
+  `27_ÖFB-Reisinger_NN`), Details siehe "Verworfen".
+- **Nächster Schritt:** Diagnose-Logging entfernen (siehe unten). Der getestete Stand ist zuerst
+  committet; die Entfernung folgt in einem separaten Commit plus kurzem Smoke-Test.
+- Functional verification of new behaviour still needs Lightroom Classic — see Manual Verification.
 
-## Offene Bugs (vom User gemeldet 2026-09-28, Lightroom-Test ausstehend)
+## Behobene Bugs (2026-09-28, vom User in Lightroom bestätigt)
 
-Beide gemeldet beim Lauf des Dialogs mit gemischter Auswahl (gestackte + nicht gestackte Fotos).
+Beide gemeldet beim Lauf des Dialogs mit gemischter Auswahl (gestackte + nicht gestackte Fotos);
+beide sind behoben.
 
-- [ ] **Bug 1 — Edit-Felder nur halb breit.** `RenameDialog.lua`: die `f:row`-Felder `custom`
-  und `pattern` (sowie `sortOrder`/`metaField`-Popups) sollen die volle Zeilenbreite füllen.
-  Verdacht: `width_in_chars = 30/40` (Z. 327/331/344) kollidiert mit `fill_horizontal = 1` und
-  gewinnt, sodass das Feld nicht expandiert. Fix: `width_in_chars` entfernen, `fill_horizontal`
-  beibehalten. `start`/`padding` (schmal) und `dateFmt` (klein) sollen schmal BLEIBEN.
-  Status: Implementierung an general subagent delegiert.
-- [ ] **Bug 2 — Nur EIN Foto erscheint in der Umbenenn-Vorschau**, obwohl mehrere ausgewählt und
-  gemischt gestackt/ungestackt sind. Root Cause **NICHT bewiesen**. Hauptverdacht: `LrPhoto`-
-  Objekte als Lua-Table-Keys — `getRawMetadata("stackInFolderMembers")` liefert pro Aufruf neue
-  Wrapper-Objekte, was `photoInfo[photo]`, `perPhotoBases[photo]` und `g.seen[m]` stillschweigend
-  brechen könnte. Alternative Verdachtsmomente: `hasReal`-Filter in `buildGroups` verwirft Gruppen;
-  Gruppen werden in `Utils.stackKey` gemerged; `buildPlan` filtert zu wenige Member.
-  Status: Root-Cause-Recherche + Diagnose-Logging an general subagent delegiert.
-  **Erwartung des Users:** ALLE ausgewählten Fotos sollen durchnummeriert werden, Stack-Zugehörigkeit
-  und Stacking selbst dürfen sich NICHT ändern.
-- [ ] **Diagnose-Logging** (durch Bug-2-Recherche ergänzt) muss nach dem LR-Test wieder entfernt
-  werden. Alle Blöcke sind als `TODO(diagnostics): remove before release` markiert.
-  Log-Ziel: `~/Documents/lrClassicLogs/StackRenamerLog.log` (Logger `StackRenamerLog` aus
-  `RenameStacks.lua`, logfile bereits aktiv).
+- [x] **Bug 1 — Edit-Felder nur halb breit.** `width_in_chars` bei `custom` und `pattern` entfernt
+  (`fill_horizontal = 1` gewinnt jetzt die Breite); `dateFmt` bleibt klein (nur `width_in_chars = 12`,
+  `fill_horizontal` entfernt); `start`/`padding` unverändert schmal. — `RenameDialog.lua`
+- [x] **Bug 2 — nur EINE Zeile in der Vorschau.** Root Cause war die **Vorschau-Widget**, NICHT die
+  Gruppierung (Log-Beweis im Status oben). Umgesetzt:
+  - Vorschau: `static_text` → read-only `edit_field` (`height_in_lines = 200`) in `scrolled_view`
+    (`height = 420`, `fill_horizontal = 1`), kein `width_in_chars` mehr → volle Breite, mehrzeilig.
+    Zusätzlich `PREVIEW_LIMIT` entfernt: alle Stacks werden gelistet, kein „… und N weitere".
+  - Datenpfade defensiv gehärtet (bleibt drin, ist unabhängig vom UI-Bug korrekt): stabile Foto-Keys
+    `Utils.photoKey` statt `LrPhoto`-Objekten als Table-Keys, `Utils.stackKey` gehärtet.
+  - `Utils.photoKey` liest `uuid`/`path` jetzt DIREKT (vorher in plain `pcall` → SDK-Reads yielden,
+    Yielding in `pcall` ist verboten → Key degradierte still auf `tostring(LrPhoto)`).
+  — `RenameDialog.lua`, `Utils.lua`, `RenameCore.lua`
+- [x] **F2-Token/Feld-Abgleich.** Verifiziert durch Lesen der gespeicherten Vorlage
+  `~/Library/Application Support/Adobe/Lightroom/Filename Templates/Instructions Only.lrtemplate`:
+  sie enthält genau einen Token, `value = "com.adobe.instructions"` — das ist das Feld, das
+  `performRename` via `setRawMetadata("instructions", base)` schreibt. Vom User bestätigt
+  („hat geklappt", Dateien im Katalog heißen `27_ÖFB-Reisinger_NN`).
+- **Entscheidung 2026-09-28 (User, per Frage-Tool): „Diagnose + robuster Fix in einem".** In EINEM
+  LR-Lauf sollen sowohl die Ursache sichtbar als auch der Fix geprüft werden. Umgesetzt wird:
+  (a) **stabile Foto-Keys** statt `LrPhoto`-Objekten als Table-Keys — neues `Utils.photoKey(photo)`
+  (String aus `uuid` + Virtual-Copy-Flag/Copy-Name, Fallback `path`, dann `tostring`), verwendet in
+  `buildGroups` (Dedup), `photoInfo`, `perPhotoBases` und beim Lesen in `previewLine`/`buildPlan`/
+  `performRename`; (b) **`Utils.stackKey` gehärtet**: nur `isInStackInFolder == true` gilt als
+  gestackt, ungestackte Keys enthalten zusätzlich den `photoKey` (können nicht mehr kollidieren),
+  gestackter Fallback ohne Mitglieder-UUIDs fällt auf den eigenen `photoKey` zurück statt auf das
+  gemeinsame `"S:"`-Bucket; (c) **Diagnose-Logging** (`TODO(diagnostics): remove before release`).
+  Delegiert an einen `general`-Subagenten (Modell `opencode-go/deepseek-v4.1-flash`); Verifikation
+  danach durch einen SEPARATEN, unabhängigen Subagenten.
+  Grund für den Doppel-Schritt: der Root Cause ist unbewiesen und in dieser Umgebung nicht
+  reproduzierbar — ohne Messwerte aus einem echten LR-Lauf ist jeder Fix geraten, ein reiner
+  Fix-Versuch kostet sonst einen zweiten LR-Lauf.
+- [ ] **Diagnose-Logging entfernen** (alle Blöcke mit `TODO(diagnostics): remove before release`).
+  **Entscheidung 2026-09-28 (User):** erst den LR-getesteten Stand committen, DANN das Logging
+  entfernen, erneut committen, dann pushen — der getestete Build bleibt so in der Historie
+  nachvollziehbar. Die Entfernung braucht danach einen kurzen LR-Smoke-Test (Dialog öffnen,
+  Vorschau ansehen), weil die Dateien dann erneut geändert sind.
+  Log-Ziel (bis dahin): `~/Documents/lrClassicLogs/StackRenamerLog.log` (Logger `StackRenamerLog`).
+  Zu beachten bei der Entfernung: die Diagnose-Helfer in **`RenameCore.lua`** (`diagDumpPhotos`/
+  `diagDumpGroups`) wrappen SDK-Reads noch in ein plain `pcall` und loggen deshalb
+  `<read failed: Yielding is not allowed within a C or metamethod call>` (Yielding ist in `pcall`
+  verboten). Fällt mit dem Logging weg.
+- [ ] **BUG (vom unabhängigen Verifier gefunden, noch offen): `RenameDialog.listFilesInFolder`**
+  wrappt die yieldenden `LrFileUtils.files` / `LrFileUtils.directoryContents` in ein plain `pcall`.
+  Folge: der Read kann fehlschlagen → die Funktion liefert `{}` → **die Ordner-Kollisionsprüfung
+  greift dann nie** (kein Fehler, kein Hinweis). Das ist KEIN Diagnose-Code, sondern Verhalten.
+  Fix: `LrTasks.pcall` verwenden (oder direkt lesen) — danach in Lightroom mit einer echten
+  Ordner-Kollision prüfen.
 
-## Build-Agent Vorfall: fehlgeschlagener Revert (2026-09-28) — behoben
+## Build-Agent Vorfall: fehlgeschlagener Revert (2026-09-28)
 
 - Der User bat um einen Revert, "das hat schon geklappt". **Die Annahme war falsch:** `1b8d657`
   ("F2 2-step") ist der **erste Commit, der überhaupt Plugin-Code hinzugefügt hat** (+1031/-0,
@@ -47,14 +90,32 @@ Beide gemeldet beim Lauf des Dialogs mit gemischter Auswahl (gestackte + nicht g
   im Repo. Ein Revert löschte daher das **komplette Plugin** (Info.lua + RenameStacks.lua fielen
   aus, Lightroom meldete "The plug-in description script (Info.lua) is missing." und danach
   "No script by the name RenameStacks.lua").
-- Auflösung: `Info.lua` und `RenameStacks.lua` aus `1b8d657` wiederhergestellt, die übrigen Dateien
-  aus dem Stash zurückgeholt, Revert-Commit (`2ce1f6b`) via `git reset b245cab` aus der Historie
-  entfernt, `.githooks/pre-commit` wiederhergestellt. Endstand: identisch zu `b245cab` plus den
-  lokalen, uncommitteten Änderungen; alle 5 Lua-Dateien `luac -p`-clean.
+- Auflösung (Dateien): `Info.lua` und `RenameStacks.lua` aus `1b8d657` wiederhergestellt, die übrigen
+  Dateien aus dem Stash zurückgeholt, Revert-Commit (`2ce1f6b`) via `git reset b245cab` aus der
+  Historie entfernt, `.githooks/pre-commit` wiederhergestellt. Endstand: identisch zu `b245cab` plus
+  den lokalen, uncommitteten Änderungen; alle 5 Lua-Dateien `luac -p`-clean.
+- **Nachtrag 2026-09-28: NICHT "behoben" durch den Datei-Restore — Lightroom blieb kaputt.**
+  Der Fehler "No script by the name RenameStacks.lua" trat danach **4×** weiter auf
+  (18:55 / 19:00 / 19:02 / 19:04), immer in **derselben LR-Prozess-ID 69480**, ohne Neustart
+  dazwischen. Belege (Logs): `lrc_console.log` zeigt den Pfad
+  `reloadPlugin → reloadPluginIfNeededForEachUse → loadScript → error(...)`, und
+  `LrClassicLogs/StackRenamerLog.log` hat seit 2026-08-30 **keinen neuen Eintrag** → der
+  Script-Body wurde nie ausgeführt, der Fehler passiert vor dem Laden.
+- **Wahre Ursache: veraltete Plugin-/Script-Liste im Lightroom-Prozess.** Lightroom hat den
+  Plugin-Ordner gescannt, **während die Dateien (durch den Revert) fehlten**, und die Script-Liste
+  ohne `RenameStacks.lua` im laufenden Prozess gecacht. `reloadPluginIfNeededForEachUse` reicht
+  nicht — der Ordner wird pro Sitzung nicht neu gescannt. Beim erneuten Auftreten ist deshalb
+  **kein** Code-Regressionsverdacht angebracht, solange `luac -p` clean ist und die
+  Info.lua-Referenz stimmt.
 - **Regel für künftige Reverts in diesem Repo:** Vor `git revert` prüfen, ob der Commit überhaupt
   ein "vorher"-Stand hat. `git show <commit> --stat` zeigt bei 0 Löschungen, dass es der Root-Commit
   des Codes ist und ein Revert alles löscht. Im Zweifel `git revert -n` (Dry Run) bzw. erst
   `git stash` + Zustand dokumentieren.
+- **Regel für Plugin-Datei-Änderungen in diesem Repo:** Nachdem Dateien im `.lrplugin`-Ordner
+  gelöscht/wiederhergestellt/umbenannt wurden (oder wenn ein neues Script in `Info.lua`
+  referenziert wird), **Lightroom Classic komplett beenden und neu starten** (nicht nur das
+  Fenster schließen). Reicht das nicht: File → Plug-in Manager → Plugin entfernen und den
+  `.lrplugin`-Ordner neu hinzufügen. Ein bloßer Menü-Klick lädt den Ordner nicht neu.
 
 ## Implemented & verified (pruned from active TODOs)
 - [x] Same-extension numbering + folder collisions (verified DONE by independent subagent,

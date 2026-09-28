@@ -17,8 +17,22 @@ local LrPrefs = import 'LrPrefs'
 
 local Utils = require "Utils"
 
--- Maximum number of stacks listed individually before summarizing.
-local PREVIEW_LIMIT = 50
+--------------------------------------------------------------------------------
+-- Diagnostic logging (temporary).
+-- TODO(diagnostics): remove before release
+-- Writes to ~/Documents/lrClassicLogs/StackRenamerLog.log. Wrapped so a broken
+-- logger can never change control flow or throw.
+--------------------------------------------------------------------------------
+local LrLogger = import 'LrLogger' -- TODO(diagnostics): remove before release
+local diagLogger = LrLogger('StackRenamerLog') -- TODO(diagnostics): remove before release
+diagLogger:enable("logfile") -- TODO(diagnostics): remove before release
+
+local function diag(fmt, ...) -- TODO(diagnostics): remove before release
+    local ok, msg = pcall(string.format, fmt, ...)
+    if ok then
+        pcall(function() diagLogger:trace(msg) end)
+    end
+end
 
 return function(groups)
     local result = nil
@@ -75,7 +89,7 @@ return function(groups)
                 if extWithDot ~= "" and string.sub(extWithDot, 1, 1) ~= "." then
                     extWithDot = "." .. extWithDot
                 end
-                photoInfo[photo] = {
+                photoInfo[Utils.photoKey(photo)] = {
                     isVC = (photo:getRawMetadata("isVirtualCopy") == true),
                     name = fn,
                     folder = folder,
@@ -84,6 +98,11 @@ return function(groups)
                 }
             end
         end
+
+        -- TODO(diagnostics): remove before release
+        local photoInfoCount = 0
+        for _ in pairs(photoInfo) do photoInfoCount = photoInfoCount + 1 end
+        diag("dialog: groups=%d photoInfo entries=%d", #groups, photoInfoCount)
 
         -- Pre-fetch the on-disk file listing ONCE per involved folder (yielding
         -- file-system access must not run inside property observers either).
@@ -150,13 +169,14 @@ return function(groups)
             local olds = {}
             local news = {}
             for _, photo in ipairs(entry.members or entry.group.photos) do
-                local pi = photoInfo[photo]
+                local pkey = Utils.photoKey(photo)
+                local pi = photoInfo[pkey]
                 if pi and not pi.isVC then
                     local fn = pi.name
                     table.insert(olds, fn)
                     local finalBase = entry.base
-                    if entry.perPhotoBases and entry.perPhotoBases[photo] then
-                        finalBase = entry.perPhotoBases[photo]
+                    if entry.perPhotoBases and entry.perPhotoBases[pkey] then
+                        finalBase = entry.perPhotoBases[pkey]
                     end
                     table.insert(news, finalBase .. (pi.ext or ""))
                 end
@@ -205,21 +225,22 @@ return function(groups)
                 local perPhotoBases = {}
                 local realOrdered = {}
                 for _, photo in ipairs(members) do
-                    local pi = photoInfo[photo]
+                    local pi = photoInfo[Utils.photoKey(photo)]
                     if pi and not pi.isVC then
                         table.insert(realOrdered, photo)
                     end
                 end
                 local extList = {}
                 for _, photo in ipairs(realOrdered) do
-                    local pi = photoInfo[photo]
+                    local pi = photoInfo[Utils.photoKey(photo)]
                     table.insert(extList, (pi and pi.extKey) or "")
                 end
                 local numbered = Utils.assignNumberedBases(base, extList)
                 for idx, photo in ipairs(realOrdered) do
                     local finalBase = numbered[idx]
-                    perPhotoBases[photo] = finalBase
-                    local pi = photoInfo[photo]
+                    local pkey = Utils.photoKey(photo)
+                    perPhotoBases[pkey] = finalBase
+                    local pi = photoInfo[pkey]
                     local finalName = finalBase .. ((pi and pi.ext) or "")
                     table.insert(targets, { folder = (pi and pi.folder) or "", name = finalName })
                 end
@@ -250,6 +271,7 @@ return function(groups)
 
         -- Recompute preview + enable/disable state whenever settings change.
         local latestPlan = nil
+        local diagPlanDone = false -- TODO(diagnostics): remove before release
         local function recompute()
             local settings = {
                 custom = props.custom or "",
@@ -262,17 +284,36 @@ return function(groups)
             local plan, intra, folderColls = buildPlan(groups, settings)
             latestPlan = plan
 
+            -- No truncation: every plan entry is listed (user decision).
             local lines = {}
-            for idx, entry in ipairs(plan) do
-                if idx <= PREVIEW_LIMIT then
-                    table.insert(lines, previewLine(entry))
+            for _, entry in ipairs(plan) do
+                table.insert(lines, previewLine(entry))
+            end
+            props.preview = table.concat(lines, "\n")
+
+            -- TODO(diagnostics): remove before release
+            if not diagPlanDone then
+                diagPlanDone = true
+                diag("dialog: plan entries=%d preview lines=%d (groups=%d, photoInfo entries=%d)",
+                    #plan, #lines, #groups, photoInfoCount)
+                for i, entry in ipairs(plan) do
+                    local members = entry.members or entry.group.photos or {}
+                    local found, notFound = 0, 0
+                    for _, photo in ipairs(members) do
+                        -- Use the cached photoInfo only: no SDK read inside the
+                        -- observer-driven recompute. A missing cache entry is
+                        -- counted as not-found.
+                        local pi = photoInfo[Utils.photoKey(photo)]
+                        if pi then
+                            if pi.isVC ~= true then found = found + 1 end
+                        else
+                            notFound = notFound + 1
+                        end
+                    end
+                    diag("  plan[%d] base=%s #members=%d nonVC found=%d notFound=%d",
+                        i, tostring(entry.base), #members, found, notFound)
                 end
             end
-            local note = ""
-            if #plan > PREVIEW_LIMIT then
-                note = string.format("\n… und %d weitere Stacks.", #plan - PREVIEW_LIMIT)
-            end
-            props.preview = table.concat(lines, "\n") .. note
 
             local anyEmpty = false
             for _, e in ipairs(plan) do
@@ -324,11 +365,11 @@ return function(groups)
             f:static_text { title = "Einstellungen", font = "<system/bold>" },
             f:row {
                 f:static_text { title = "Freitext:", width = 120 },
-                f:edit_field { value = LrView.bind { key = "custom", bind_to_object = props }, fill_horizontal = 1, width_in_chars = 30 }
+                f:edit_field { value = LrView.bind { key = "custom", bind_to_object = props }, fill_horizontal = 1 }
             },
             f:row {
                 f:static_text { title = "Datumsformat:", width = 120 },
-                f:edit_field { value = LrView.bind { key = "dateFmt", bind_to_object = props }, fill_horizontal = 1, width_in_chars = 12, placeholder_string = "DD" },
+                f:edit_field { value = LrView.bind { key = "dateFmt", bind_to_object = props }, width_in_chars = 12, placeholder_string = "DD" },
                 f:static_text { title = "(z. B. DD, YY, YYYYMMDD)", text_color = LrColor(0.5, 0.5, 0.5) }
             },
             f:row {
@@ -341,7 +382,7 @@ return function(groups)
             },
             f:row {
                 f:static_text { title = "Namensmuster:", width = 120 },
-                f:edit_field { value = LrView.bind { key = "pattern", bind_to_object = props }, fill_horizontal = 1, width_in_chars = 40 }
+                f:edit_field { value = LrView.bind { key = "pattern", bind_to_object = props }, fill_horizontal = 1 }
             },
             f:row {
                 f:static_text { title = "Sortierung:", width = 120 },
@@ -360,15 +401,21 @@ return function(groups)
             f:separator { fill_horizontal = 1 },
             f:spacer { height = 5 },
             f:static_text { title = "Vorschau (alt → neu)", font = "<system/bold>" },
+            -- The preview is a read-only multi-line edit_field: a bound
+            -- static_text did not grow with the string and stayed one line
+            -- tall. scrolled_view cannot auto-size to the dialog, so it gets a
+            -- large fixed height and scrolls; the edit_field itself is tall
+            -- enough that normal selections fit without an inner scrollbar.
             f:scrolled_view {
                 fill_horizontal = 1,
-                height = 220,
+                height = 420,
                 vertical_scrollbar = true,
                 horizontal_scrollbar = false,
-                f:static_text {
-                    title = LrView.bind { key = "preview", bind_to_object = props },
+                f:edit_field {
+                    value = LrView.bind { key = "preview", bind_to_object = props },
+                    height_in_lines = 200,
                     fill_horizontal = 1,
-                    width_in_chars = 80,
+                    readonly = true,
                 },
             },
             f:static_text {
