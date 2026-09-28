@@ -10,6 +10,7 @@ local LrView = import 'LrView'
 local LrDialogs = import 'LrDialogs'
 local LrFunctionContext = import 'LrFunctionContext'
 local LrPathUtils = import 'LrPathUtils'
+local LrFileUtils = import 'LrFileUtils'
 local LrBinding = import 'LrBinding'
 local LrColor = import 'LrColor'
 local LrPrefs = import 'LrPrefs'
@@ -35,7 +36,6 @@ return function(groups)
         props.padding = prefs.padding or 2
         props.pattern = prefs.pattern or "{date}_{custom}_{seq}"
         props.sortOrder = prefs.sortOrder or "capture" -- "selection" | "capture" | "filename"
-        props.inStackOrder = (prefs.inStackOrder ~= false) -- convenience option, default ON
         props.metaField = prefs.metaField or "instructions" -- "instructions" | "headline"
 
         local metaFieldItems = {
@@ -57,51 +57,95 @@ return function(groups)
         -- Pre-fetch per-photo info ONCE (yielding SDK calls must not run inside
         -- the property observers that drive the live preview below). This cache
         -- is plain Lua data, so recompute() stays yield-free in every context.
+        -- Besides the display name it holds the containing folder and the
+        -- extension (case preserved, with dot) used for per-photo numbering
+        -- and folder-scoped collision checks.
         local photoInfo = {}
         for _, g in ipairs(groups) do
             for _, photo in ipairs(g.photos) do
+                local fn = photo:getFormattedMetadata("fileName") or "?"
+                local path = photo:getRawMetadata("path") or ""
+                local folder = ""
+                if path ~= "" then
+                    local ok, parent = pcall(function() return LrPathUtils.parent(path) end)
+                    if ok and parent then folder = parent end
+                end
+                local rawExt = LrPathUtils.extension(fn) or ""
+                local extWithDot = rawExt
+                if extWithDot ~= "" and string.sub(extWithDot, 1, 1) ~= "." then
+                    extWithDot = "." .. extWithDot
+                end
                 photoInfo[photo] = {
                     isVC = (photo:getRawMetadata("isVirtualCopy") == true),
-                    name = photo:getFormattedMetadata("fileName") or "?",
+                    name = fn,
+                    folder = folder,
+                    ext = extWithDot,
+                    extKey = string.lower(extWithDot or ""),
                 }
             end
         end
 
-        -- Within a stack: move a DNG to position 1 and the first non-raw file
-        -- (JPEG/HEIC/PNG/…, JPG=JPEG) to position 2 while every other member
-        -- keeps its original relative order. Examples:
-        --   CR3, DNG, JPEG -> DNG, JPEG, CR3
-        --   CR3, DNG       -> DNG, CR3
-        --   CR3, JPEG      -> CR3, JPEG  (unchanged)
-        -- Pure Lua (uses the photoInfo cache), safe inside observers.
-        local function moveTo(list, item, toIdx)
-            for i, p in ipairs(list) do
-                if p == item then
-                    table.remove(list, i)
-                    if toIdx > #list then toIdx = #list + 1 end
-                    table.insert(list, toIdx, item)
-                    return list
+        -- Pre-fetch the on-disk file listing ONCE per involved folder (yielding
+        -- file-system access must not run inside property observers either).
+        -- Keys are lowercased folder paths (folder-scoped, case-insensitive);
+        -- values are arrays of leaf file names. Failures fall back to an empty
+        -- list so the dialog still works without the folder check.
+        local function listFilesInFolder(dir)
+            if not dir or dir == "" then return {} end
+            if LrFileUtils and type(LrFileUtils.files) == "function" then
+                local ok, res = pcall(function() return LrFileUtils.files(dir) end)
+                if ok and res then
+                    if type(res) == "table" then
+                        local out = {}
+                        for _, p in ipairs(res) do
+                            local leafOk, leaf = pcall(function() return LrPathUtils.leafName(p) end)
+                            if leafOk and leaf then table.insert(out, leaf)
+                            else table.insert(out, tostring(p)) end
+                        end
+                        return out
+                    elseif type(res) == "function" then
+                        local out = {}
+                        for p in res do
+                            local leafOk, leaf = pcall(function() return LrPathUtils.leafName(p) end)
+                            if leafOk and leaf then table.insert(out, leaf)
+                            else table.insert(out, tostring(p)) end
+                        end
+                        return out
+                    end
                 end
             end
-            return list
-        end
-
-        local function orderInStack(photos)
-            local dng, nonRaw = nil, nil
-            for _, p in ipairs(photos) do
-                local pi = photoInfo[p]
-                local name = pi and pi.name or ""
-                if not dng and Utils.isDngFileName(name) then dng = p end
-                if not nonRaw and Utils.isNonRawFileName(name) then nonRaw = p end
+            if LrFileUtils and type(LrFileUtils.directoryContents) == "function" then
+                local ok, files = pcall(function() return LrFileUtils.directoryContents(dir) end)
+                if ok and type(files) == "table" then
+                    local out = {}
+                    for _, p in ipairs(files) do
+                        local leafOk, leaf = pcall(function() return LrPathUtils.leafName(p) end)
+                        if leafOk and leaf then table.insert(out, leaf)
+                        else table.insert(out, tostring(p)) end
+                    end
+                    return out
+                end
             end
-            local res = {}
-            for _, p in ipairs(photos) do table.insert(res, p) end
-            if dng then res = moveTo(res, dng, 1) end
-            if nonRaw then res = moveTo(res, nonRaw, 2) end
-            return res
+            return {}
         end
 
+        local distinctFolders = {} -- lowerFolder -> display folder
+        for _, pi in pairs(photoInfo) do
+            if not pi.isVC and pi.folder and pi.folder ~= "" then
+                local key = string.lower(pi.folder)
+                if not distinctFolders[key] then distinctFolders[key] = pi.folder end
+            end
+        end
+        local existingByFolder = {} -- lowerFolder -> array of leaf names
+        for key, display in pairs(distinctFolders) do
+            existingByFolder[key] = listFilesInFolder(display)
+        end
+
+        -- Members always keep the stack order delivered by buildGroups in
+        -- RenameCore.lua (the SDK offers no API to reorder existing stacks).
         -- One preview line for a plan entry: "old1, old2 -> new1 / new2".
+        -- Uses the per-photo final base (duplicate-extension numbering), so
+        -- the preview shows exactly what performRename will write.
         local function previewLine(entry)
             local olds = {}
             local news = {}
@@ -110,18 +154,21 @@ return function(groups)
                 if pi and not pi.isVC then
                     local fn = pi.name
                     table.insert(olds, fn)
-                    local ext = LrPathUtils.extension(fn)
-                    if ext ~= "" and string.sub(ext, 1, 1) ~= "." then
-                        ext = "." .. ext
+                    local finalBase = entry.base
+                    if entry.perPhotoBases and entry.perPhotoBases[photo] then
+                        finalBase = entry.perPhotoBases[photo]
                     end
-                    table.insert(news, entry.base .. ext)
+                    table.insert(news, finalBase .. (pi.ext or ""))
                 end
             end
             return table.concat(olds, ", ") .. "  →  " .. table.concat(news, " / ")
         end
 
-        -- Compute the rename plan (sorted groups + resolved base names) and the
-        -- set of colliding base names.
+        -- Compute the rename plan (sorted groups + per-photo base names) and the
+        -- folder-scoped collision sets. Pure Lua over the photoInfo cache and
+        -- the pre-fetched folder listing: no yielding SDK calls here, so this
+        -- is safe inside property observers. Returns plan, intraCollisions,
+        -- folderCollisions.
         local function buildPlan(grpList, settings)
             local sorted = {}
             for _, g in ipairs(grpList) do table.insert(sorted, g) end
@@ -138,7 +185,7 @@ return function(groups)
             end
 
             local plan = {}
-            local bases = {}
+            local targets = {} -- { folder, name } final file names for collision checks
             local seq = settings.start or 1
             for _, g in ipairs(sorted) do
                 local ctx = {
@@ -151,19 +198,54 @@ return function(groups)
                 }
                 local base = Utils.resolvePattern(settings.pattern, ctx)
                 local members = g.photos
-                if settings.inStackOrder then
-                    members = orderInStack(g.photos)
+                -- Per-photo final bases: group real (non-VC) members by
+                -- lowercased extension in deterministic in-stack order. The
+                -- 1st file per extension keeps `base`, later ones get
+                -- `base-2`, `base-3`, ... Extension case stays untouched.
+                local perPhotoBases = {}
+                local realOrdered = {}
+                for _, photo in ipairs(members) do
+                    local pi = photoInfo[photo]
+                    if pi and not pi.isVC then
+                        table.insert(realOrdered, photo)
+                    end
                 end
-                table.insert(plan, { group = g, base = base, seq = seq, members = members })
-                table.insert(bases, base)
+                local extList = {}
+                for _, photo in ipairs(realOrdered) do
+                    local pi = photoInfo[photo]
+                    table.insert(extList, (pi and pi.extKey) or "")
+                end
+                local numbered = Utils.assignNumberedBases(base, extList)
+                for idx, photo in ipairs(realOrdered) do
+                    local finalBase = numbered[idx]
+                    perPhotoBases[photo] = finalBase
+                    local pi = photoInfo[photo]
+                    local finalName = finalBase .. ((pi and pi.ext) or "")
+                    table.insert(targets, { folder = (pi and pi.folder) or "", name = finalName })
+                end
+                table.insert(plan, { group = g, base = base, seq = seq, members = members, perPhotoBases = perPhotoBases })
                 seq = seq + 1
             end
 
-            -- Case-insensitive collision detection (delegated to Utils; see
-            -- Utils.findCollisions for the first-seen spelling rule).
-            local collisions = Utils.findCollisions(bases)
-            table.sort(collisions)
-            return plan, collisions
+            -- Intra-plan duplicates: folder-scoped, on final file names
+            -- (base + extension, case-insensitive), including same-extension
+            -- duplicates inside one stack.
+            local intra = Utils.findIntraPlanCollisions(targets)
+
+            -- Folder-vs-disk: planned final names against files already in the
+            -- same folder, excluding files that are part of the plan (they
+            -- move away). Same names in different folders are NOT collisions.
+            local sourcesByFolder = {} -- lowerFolder -> { [lowerName] = true }
+            for _, pi in pairs(photoInfo) do
+                if not pi.isVC and pi.folder and pi.folder ~= "" and pi.name then
+                    local fkey = string.lower(pi.folder)
+                    local set = sourcesByFolder[fkey]
+                    if not set then set = {}; sourcesByFolder[fkey] = set end
+                    set[string.lower(pi.name)] = true
+                end
+            end
+            local folderColls = Utils.findFolderCollisions(targets, existingByFolder, sourcesByFolder)
+            return plan, intra, folderColls
         end
 
         -- Recompute preview + enable/disable state whenever settings change.
@@ -176,9 +258,8 @@ return function(groups)
                 padding = tonumber(props.padding) or 2,
                 pattern = props.pattern or "{date}_{custom}_{seq}",
                 sortOrder = props.sortOrder or "capture",
-                inStackOrder = (props.inStackOrder ~= false),
             }
-            local plan, collisions = buildPlan(groups, settings)
+            local plan, intra, folderColls = buildPlan(groups, settings)
             latestPlan = plan
 
             local lines = {}
@@ -198,8 +279,22 @@ return function(groups)
                 if e.base == "" then anyEmpty = true; break end
             end
 
-            if #collisions > 0 then
-                props.collisionNote = "Namens-Kollision: " .. table.concat(collisions, ", ")
+            local notes = {}
+            if #intra > 0 then
+                local names = {}
+                for _, c in ipairs(intra) do table.insert(names, c.name) end
+                table.insert(notes, "Namens-Kollision: " .. table.concat(names, ", "))
+            end
+            if #folderColls > 0 then
+                local parts = {}
+                for _, c in ipairs(folderColls) do
+                    table.insert(parts, "'" .. (c.folder or "") .. "': " .. (c.name or ""))
+                end
+                table.insert(notes, "Ordner-Kollision: " .. table.concat(parts, ", ")
+                    .. " ist bereits vorhanden.")
+            end
+            if #notes > 0 then
+                props.collisionNote = table.concat(notes, "\n")
                 props.canApply = false
             elseif anyEmpty then
                 props.collisionNote = "Das Namensmuster ergibt einen leeren Dateinamen."
@@ -215,7 +310,7 @@ return function(groups)
 
         -- Initial compute + observers that keep the preview live.
         recompute()
-        for _, key in ipairs({ "custom", "dateFmt", "start", "padding", "pattern", "sortOrder", "inStackOrder" }) do
+        for _, key in ipairs({ "custom", "dateFmt", "start", "padding", "pattern", "sortOrder" }) do
             props:addObserver(key, function() recompute() end)
         end
 
@@ -253,13 +348,6 @@ return function(groups)
                 f:popup_menu { items = sortItems, value = LrView.bind { key = "sortOrder", bind_to_object = props }, fill_horizontal = 1 }
             },
             f:row {
-                f:static_text { title = "In-Stack-Ordnung:", width = 120 },
-                f:checkbox {
-                    title = "DNG zuerst, Non-Raw (JPEG/HEIC/…) auf Position 2",
-                    value = LrView.bind { key = "inStackOrder", bind_to_object = props },
-                },
-            },
-            f:row {
                 f:static_text { title = "Namens-Feld:", width = 120 },
                 f:popup_menu { items = metaFieldItems, value = LrView.bind { key = "metaField", bind_to_object = props }, fill_horizontal = 1 },
                 f:static_text { title = "(in der F2-Vorlage verwendetes IPTC-Feld)", text_color = LrColor(0.5, 0.5, 0.5) }
@@ -272,10 +360,16 @@ return function(groups)
             f:separator { fill_horizontal = 1 },
             f:spacer { height = 5 },
             f:static_text { title = "Vorschau (alt → neu)", font = "<system/bold>" },
-            f:edit_field {
-                value = LrView.bind { key = "preview", bind_to_object = props },
-                height_in_lines = 15,
-                width_in_chars = 80,
+            f:scrolled_view {
+                fill_horizontal = 1,
+                height = 220,
+                vertical_scrollbar = true,
+                horizontal_scrollbar = false,
+                f:static_text {
+                    title = LrView.bind { key = "preview", bind_to_object = props },
+                    fill_horizontal = 1,
+                    width_in_chars = 80,
+                },
             },
             f:static_text {
                 title = LrView.bind { key = "collisionNote", bind_to_object = props },
@@ -301,7 +395,6 @@ return function(groups)
         prefs.padding = tonumber(props.padding) or 2
         prefs.pattern = props.pattern or "{date}_{custom}_{seq}"
         prefs.sortOrder = props.sortOrder or "capture"
-        prefs.inStackOrder = (props.inStackOrder ~= false)
         prefs.metaField = props.metaField or "instructions"
 
         if res == "ok" and props.canApply then

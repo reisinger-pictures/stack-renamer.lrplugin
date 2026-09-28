@@ -119,13 +119,15 @@ local function performRename(catalog, plan, metaField)
         local done = 0
 
         for _, entry in ipairs(plan) do
-            local base = entry.base
             local members = entry.members or entry.group.photos
+            local perPhoto = entry.perPhotoBases or entry.perPhoto or nil
             for _, photo in ipairs(members) do
                 if photo:getRawMetadata("isVirtualCopy") ~= true then
                     done = done + 1
                     local fileName = photo:getFormattedMetadata("fileName") or "?"
-                    if base ~= "" then
+                    local base = entry.base
+                    if perPhoto and perPhoto[photo] then base = perPhoto[photo] end
+                    if base and base ~= "" then
                         progress:setCaption("Schreibe Namen: " .. fileName)
                         local ok, err = LrTasks.pcall(function()
                             photo:setRawMetadata(metaField, base)

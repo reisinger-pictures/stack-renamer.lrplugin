@@ -72,6 +72,20 @@ Token-based pattern string (editable in the dialog), default `{date}_{custom}_{s
 Result for Ina's wish: `25_Island_02` applied to `.CR3` / `.DNG` / `.JPEG`. The **extension is
 preserved automatically per file** (Lightroom appends it on rename); it is NOT part of the pattern.
 
+## CodeGraph — Index & MCP (bevorzugt nutzen!)
+
+- **Status:** CodeGraph ist initialisiert (`.codegraph/` vorhanden, 5 Lua-Files, 66 Nodes, 89 Edges, Stand 2026-09-02, `codegraph status` → ✓ up to date). Lua wird unterstützt.
+- **CLI:** `~/.local/bin/codegraph` (auf `$PATH`):
+  `codegraph explore "<symbol oder Frage>"` — gleiche Ausgabe wie MCP-Tool `codegraph_explore`
+  `codegraph status` — Index-Statistik, `codegraph sync` — inkrementell, `codegraph index` — Rebuild
+- **MCP-Server (für den Agenten, bevorzugt):** Global in `~/.config/opencode/opencode.jsonc` konfiguriert:
+  ```json
+  { "mcp": { "codegraph": { "type": "local", "command": ["codegraph", "serve", "--mcp"], "enabled": true } } }
+  ```
+  Tools: `codegraph_explore` (eine Abfrage = Verbatim-Source + Call-Paths + Blast-Radius), `codegraph_node`, `codegraph_query`, `codegraph_files`. **Immer MCP nutzen wenn `.codegraph/` existiert** — ersetzt grep+Read-Loop. Ohne `.codegraph/` → Built-in Tools (Read/Grep) nutzen, nicht selbst `codegraph init` ausführen (User-Entscheidung).
+- **Git Hook:** `.githooks/pre-commit` läuft `codegraph sync -q` vor jedem Commit (fails open, nie blockierend). Aktivieren via `git config core.hooksPath .githooks` (pro Clone einmal).
+- **Kein `.codegraph/`?** Dann CodeGraph überspringen — kein Ersatz nötig.
+
 ## Open Points (see AGENTS.todo.md)
 
 - Date-tag interpretation: `DD` (day) vs `YY` (year) — both yield "25"; default `DD`.

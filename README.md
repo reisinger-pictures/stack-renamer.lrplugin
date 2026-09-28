@@ -53,7 +53,6 @@ Alle Einstellungen werden beim Schließen persistiert (`LrPrefs`) und beim näch
 | Startnummer / Padding | Startwert und Nullbreite für `{seq}` |
 | Namensmuster | Tokens + fester Text |
 | Sortierung | **Aktuelle Reihenfolge** (wie Lightroom die Auswahl liefert, z. B. Custom Sort) · **Aufnahmezeit** · **Dateiname** — bestimmt die `{seq}`-Vergabe |
-| In-Stack-Ordnung | DNG auf Position 1, Non-Raw (JPEG/HEIC/…) auf Position 2, Rest bleibt relativ (z. B. `CR3,DNG,JPEG` → `DNG,JPEG,CR3`) |
 | Namens-Feld | IPTC-Feld, in das der Basisname geschrieben wird: **Instructions** (Standard) oder **Headline** |
 
 ## Verhalten & Design
@@ -76,6 +75,9 @@ Alle Einstellungen werden beim Schließen persistiert (`LrPrefs`) und beim näch
 
 ## Bekannte Punkte
 
+- **Stack-Reihenfolge (SDK-Limit):** Das Plugin kann die Reihenfolge innerhalb eines bestehenden
+  Stacks nicht ändern (das Lightroom-SDK bietet dafür keine API). Zum Umsortieren den Stack in
+  Lightroom aufklappen und die Fotos in benutzerdefinierter Sortierung per Drag & Drop ziehen.
 - Automatisches Erzeugen des F2-Templates durch das Plugin ist nicht umgesetzt (Token-Codierung der
   `.lrtemplate`-Dateien ist undokumentiert/fragil); das Template wird einmal manuell erstellt.
-- Dateitoken „Originalname" (`{orig}`) bei Stacks bezieht sich auf den Repräsentanten.
+- Dateitoken „Originalname“ (`{orig}`) bei Stacks bezieht sich auf den Repräsentanten.

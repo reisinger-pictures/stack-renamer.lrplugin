@@ -184,6 +184,149 @@ function Utils.findCollisions(names)
     return list
 end
 
+--------------------------------------------------------------------------------
+-- Duplicate-extension numbering + folder-scoped collisions
+--------------------------------------------------------------------------------
+
+-- Return the file extension including the leading dot, preserving the original
+-- case (".CR3", ".JPG"). Returns "" when the name has no extension.
+function Utils.extensionWithDot(fileName)
+    if not fileName then return "" end
+    local ext = string.match(fileName, "%.([^.]*)$")
+    if not ext or ext == "" then return "" end
+    return "." .. ext
+end
+
+-- Assign per-photo final base names for one stack.
+-- The 1st file of each extension keeps `base`, the 2nd gets `base-2`, the 3rd
+-- `base-3`, and so on. Extension comparison is case-insensitive (lowercased
+-- key); the returned bases keep `base` untouched. `extList` holds extension
+-- strings (with or without leading dot, any case) in deterministic in-stack
+-- order. Returns an array of final bases aligned with `extList`.
+function Utils.assignNumberedBases(base, extList)
+    local counts = {}
+    local out = {}
+    for i, ext in ipairs(extList or {}) do
+        local key = string.lower(ext or "")
+        key = string.gsub(key, "^%.", "")
+        counts[key] = (counts[key] or 0) + 1
+        local n = counts[key]
+        if n == 1 then
+            out[i] = base
+        else
+            out[i] = base .. "-" .. tostring(n)
+        end
+    end
+    return out
+end
+
+-- Folder-scoped intra-plan collision detection (case-insensitive).
+-- `targets` is an array of { folder = string, name = string } holding final
+-- file names (e.g. "25_Island_02.JPG"). Two targets collide only when they
+-- share the same folder (case-insensitive path) AND the same file name
+-- (case-insensitive). Same names in different folders are NOT collisions.
+-- Returns an array of { folder, name } with the first-seen spelling,
+-- sorted by folder then name (case-insensitive).
+function Utils.findIntraPlanCollisions(targets)
+    local seen = {}        -- folderKey .. NUL .. lowerName -> { folder, name }
+    local displayByFolder = {} -- folderKey -> first-seen display folder
+    local dupKeys = {}
+    for _, t in ipairs(targets or {}) do
+        local folder = t.folder or ""
+        local name = t.name or ""
+        if name ~= "" then
+            local fkey = string.lower(folder)
+            if not displayByFolder[fkey] then displayByFolder[fkey] = folder end
+            local key = fkey .. "\0" .. string.lower(name)
+            if seen[key] then
+                dupKeys[key] = true
+            else
+                seen[key] = { folder = displayByFolder[fkey], name = name }
+            end
+        end
+    end
+    local out = {}
+    for key in pairs(dupKeys) do table.insert(out, seen[key]) end
+    table.sort(out, function(a, b)
+        local fa, fb = string.lower(a.folder or ""), string.lower(b.folder or "")
+        if fa ~= fb then return fa < fb end
+        return string.lower(a.name or "") < string.lower(b.name or "")
+    end)
+    return out
+end
+
+-- Folder-vs-disk collision detection (case-insensitive, folder-scoped).
+-- `planned` is an array of { folder, name } with final target names.
+-- `existingByFolder` maps (lowercased) folder path -> array of leaf file names
+-- currently on disk. `sourcesByFolder` maps (lowercased) folder path -> set of
+-- lowercased source file names that are part of the rename plan (they move
+-- away, so they never count as collisions).
+-- Returns an array of { folder, name } with the first-seen planned spelling,
+-- sorted by folder then name (case-insensitive).
+function Utils.findFolderCollisions(planned, existingByFolder, sourcesByFolder)
+    local existingSets = {} -- lowerFolder -> { [lowerName] = true }
+    for fkey, files in pairs(existingByFolder or {}) do
+        local lk = string.lower(fkey or "")
+        local set = {}
+        if type(files) == "table" then
+            for _, fn in ipairs(files) do
+                if type(fn) == "string" and fn ~= "" then
+                    set[string.lower(fn)] = true
+                end
+            end
+            -- Also accept set-shaped tables { ["Name.ext"] = true }.
+            for k, v in pairs(files) do
+                if type(k) == "string" and v == true then
+                    set[string.lower(k)] = true
+                end
+            end
+        end
+        existingSets[lk] = set
+    end
+    local sourceSets = {} -- lowerFolder -> { [lowerName] = true }
+    for fkey, set in pairs(sourcesByFolder or {}) do
+        local lk = string.lower(fkey or "")
+        local norm = {}
+        if type(set) == "table" then
+            for k, v in pairs(set) do
+                if type(k) == "string" then
+                    norm[string.lower(k)] = true
+                elseif type(v) == "string" then
+                    norm[string.lower(v)] = true
+                end
+            end
+        end
+        sourceSets[lk] = norm
+    end
+    local reported = {} -- dedupKey -> { folder, name }
+    for _, t in ipairs(planned or {}) do
+        local folder = t.folder or ""
+        local name = t.name or ""
+        if name ~= "" then
+            local fkey = string.lower(folder)
+            local nkey = string.lower(name)
+            local srcSet = sourceSets[fkey]
+            if not (srcSet and srcSet[nkey]) then
+                local exSet = existingSets[fkey]
+                if exSet and exSet[nkey] then
+                    local dkey = fkey .. "\0" .. nkey
+                    if not reported[dkey] then
+                        reported[dkey] = { folder = folder, name = name }
+                    end
+                end
+            end
+        end
+    end
+    local out = {}
+    for _, v in pairs(reported) do table.insert(out, v) end
+    table.sort(out, function(a, b)
+        local fa, fb = string.lower(a.folder or ""), string.lower(b.folder or "")
+        if fa ~= fb then return fa < fb end
+        return string.lower(a.name or "") < string.lower(b.name or "")
+    end)
+    return out
+end
+
 -- True if a file name has a JPEG/JPG extension (case-insensitive).
 function Utils.isJpegFileName(name)
     if not name then return false end
@@ -191,28 +334,6 @@ function Utils.isJpegFileName(name)
     if not ext then return false end
     ext = string.lower(ext)
     return ext == "jpg" or ext == "jpeg"
-end
-
--- True if a file name has a DNG extension (case-insensitive).
-function Utils.isDngFileName(name)
-    if not name then return false end
-    local ext = name:match("%.([^.]+)$")
-    if not ext then return false end
-    return string.lower(ext) == "dng"
-end
-
--- True if a file name refers to a non-raw, renderable image format
--- (JPEG/JPG, HEIC/HEIF, PNG, GIF, BMP, WEBP, PSD, PSB, …). TIFF is NOT in
--- this list: it is treated as a raw/scan format (counted with CR3/DNG-style
--- files), matching the user's stack-format rules.
-function Utils.isNonRawFileName(name)
-    if not name then return false end
-    local ext = name:match("%.([^.]+)$")
-    if not ext then return false end
-    ext = string.lower(ext)
-    return ext == "jpg" or ext == "jpeg" or ext == "heic" or ext == "heif"
-        or ext == "png" or ext == "gif" or ext == "bmp" or ext == "webp"
-        or ext == "psd" or ext == "psb"
 end
 
 return Utils
