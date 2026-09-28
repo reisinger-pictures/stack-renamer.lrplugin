@@ -71,12 +71,23 @@ beide sind behoben.
   **Offen: Smoke-Test nach diesem Commit.** Die Dateien haben sich erneut geändert → Lightroom
   Classic komplett neu starten (Regel in AGENTS.md) und Dialog einmal öffnen (Vorschau mehrzeilig,
   Felder volle Breite). Das ist ein reiner Sichtcheck, keine neue Funktionalität.
-- [ ] **BUG (vom unabhängigen Verifier gefunden, noch offen): `RenameDialog.listFilesInFolder`**
-  wrappt die yieldenden `LrFileUtils.files` / `LrFileUtils.directoryContents` in ein plain `pcall`.
-  Folge: der Read kann fehlschlagen → die Funktion liefert `{}` → **die Ordner-Kollisionsprüfung
-  greift dann nie** (kein Fehler, kein Hinweis). Das ist KEIN Diagnose-Code, sondern Verhalten.
-  Fix: `LrTasks.pcall` verwenden (oder direkt lesen) — danach in Lightroom mit einer echten
-  Ordner-Kollision prüfen.
+- [x] **Ordner-Kollisionsprüfung war wirkungslos — behoben.** `RenameDialog.listFilesInFolder`
+  wrappte die yieldenden `LrFileUtils.files` / `LrFileUtils.directoryContents` in ein plain `pcall`.
+  Ein plain `pcall` ist eine C-Funktion und kann nicht yielden → der Read warf eine Exception, wurde
+  verschluckt, die Funktion lieferte `{}` → `existingByFolder` war immer leer → **die
+  Ordner-Kollisionsprüfung griff nie** (kein Fehler, kein Hinweis). Fix: beide Stellen auf
+  `LrTasks.pcall` umgestellt (yield-fähig); die verbleibenden plain `pcall`s um
+  `LrPathUtils.parent`/`leafName` bleiben korrekt (pure String-Operationen, nicht yieldend).
+  Unabhängig verifiziert: minimaler Diff (Import + 2 Stellen + Kommentare), `luac -p` clean,
+  Aufrufpfad ist der Async-Task (`LrFunctionContext`), NICHT ein Observer.
+  **Offen: manueller LR-Test** — Dummy-Datei mit einem geplanten Zielnamen (nicht Teil der Auswahl)
+  in den Zielordner legen → „Ordner-Kollision: …" muss erscheinen und „Anwenden" deaktiviert sein;
+  Dummy löschen → Meldung weg, „Anwenden" wieder aktiv.
+- **Bekannte Restlücke (bewusst, dokumentiert):** schlägt das Ordner-Listing aus einem ECHTEN Grund
+  fehl (fehlende `LrFileUtils`, I/O-/Rechtefehler), liefert `listFilesInFolder` weiterhin still `{}`
+  und die Ordner-Kollisionsprüfung entfällt lautlos. Kein Log, kein Hinweis. Bewusst so, damit der
+  Dialog auch ohne Ordner-Check funktioniert — bei Gelegenheit prüfen, ob ein sichtbarer Hinweis
+  besser wäre.
 
 ## Build-Agent Vorfall: fehlgeschlagener Revert (2026-09-28)
 

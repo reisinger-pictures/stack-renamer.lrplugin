@@ -11,6 +11,7 @@ local LrDialogs = import 'LrDialogs'
 local LrFunctionContext = import 'LrFunctionContext'
 local LrPathUtils = import 'LrPathUtils'
 local LrFileUtils = import 'LrFileUtils'
+local LrTasks = import 'LrTasks'
 local LrBinding = import 'LrBinding'
 local LrColor = import 'LrColor'
 local LrPrefs = import 'LrPrefs'
@@ -90,7 +91,9 @@ return function(groups)
         local function listFilesInFolder(dir)
             if not dir or dir == "" then return {} end
             if LrFileUtils and type(LrFileUtils.files) == "function" then
-                local ok, res = pcall(function() return LrFileUtils.files(dir) end)
+                -- LrTasks.pcall: LrFileUtils.files yields during disk I/O; a plain
+                -- pcall cannot yield and would swallow the listing (returning ok=false).
+                local ok, res = LrTasks.pcall(function() return LrFileUtils.files(dir) end)
                 if ok and res then
                     if type(res) == "table" then
                         local out = {}
@@ -112,7 +115,9 @@ return function(groups)
                 end
             end
             if LrFileUtils and type(LrFileUtils.directoryContents) == "function" then
-                local ok, files = pcall(function() return LrFileUtils.directoryContents(dir) end)
+                -- LrTasks.pcall: LrFileUtils.directoryContents yields during disk I/O;
+                -- a plain pcall cannot yield and would swallow the listing.
+                local ok, files = LrTasks.pcall(function() return LrFileUtils.directoryContents(dir) end)
                 if ok and type(files) == "table" then
                     local out = {}
                     for _, p in ipairs(files) do
