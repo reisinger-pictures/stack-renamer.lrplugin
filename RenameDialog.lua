@@ -17,23 +17,6 @@ local LrPrefs = import 'LrPrefs'
 
 local Utils = require "Utils"
 
---------------------------------------------------------------------------------
--- Diagnostic logging (temporary).
--- TODO(diagnostics): remove before release
--- Writes to ~/Documents/lrClassicLogs/StackRenamerLog.log. Wrapped so a broken
--- logger can never change control flow or throw.
---------------------------------------------------------------------------------
-local LrLogger = import 'LrLogger' -- TODO(diagnostics): remove before release
-local diagLogger = LrLogger('StackRenamerLog') -- TODO(diagnostics): remove before release
-diagLogger:enable("logfile") -- TODO(diagnostics): remove before release
-
-local function diag(fmt, ...) -- TODO(diagnostics): remove before release
-    local ok, msg = pcall(string.format, fmt, ...)
-    if ok then
-        pcall(function() diagLogger:trace(msg) end)
-    end
-end
-
 return function(groups)
     local result = nil
 
@@ -98,11 +81,6 @@ return function(groups)
                 }
             end
         end
-
-        -- TODO(diagnostics): remove before release
-        local photoInfoCount = 0
-        for _ in pairs(photoInfo) do photoInfoCount = photoInfoCount + 1 end
-        diag("dialog: groups=%d photoInfo entries=%d", #groups, photoInfoCount)
 
         -- Pre-fetch the on-disk file listing ONCE per involved folder (yielding
         -- file-system access must not run inside property observers either).
@@ -271,7 +249,6 @@ return function(groups)
 
         -- Recompute preview + enable/disable state whenever settings change.
         local latestPlan = nil
-        local diagPlanDone = false -- TODO(diagnostics): remove before release
         local function recompute()
             local settings = {
                 custom = props.custom or "",
@@ -290,30 +267,6 @@ return function(groups)
                 table.insert(lines, previewLine(entry))
             end
             props.preview = table.concat(lines, "\n")
-
-            -- TODO(diagnostics): remove before release
-            if not diagPlanDone then
-                diagPlanDone = true
-                diag("dialog: plan entries=%d preview lines=%d (groups=%d, photoInfo entries=%d)",
-                    #plan, #lines, #groups, photoInfoCount)
-                for i, entry in ipairs(plan) do
-                    local members = entry.members or entry.group.photos or {}
-                    local found, notFound = 0, 0
-                    for _, photo in ipairs(members) do
-                        -- Use the cached photoInfo only: no SDK read inside the
-                        -- observer-driven recompute. A missing cache entry is
-                        -- counted as not-found.
-                        local pi = photoInfo[Utils.photoKey(photo)]
-                        if pi then
-                            if pi.isVC ~= true then found = found + 1 end
-                        else
-                            notFound = notFound + 1
-                        end
-                    end
-                    diag("  plan[%d] base=%s #members=%d nonVC found=%d notFound=%d",
-                        i, tostring(entry.base), #members, found, notFound)
-                end
-            end
 
             local anyEmpty = false
             for _, e in ipairs(plan) do

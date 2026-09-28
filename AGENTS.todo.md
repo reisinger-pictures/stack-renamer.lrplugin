@@ -65,16 +65,12 @@ beide sind behoben.
   Grund für den Doppel-Schritt: der Root Cause ist unbewiesen und in dieser Umgebung nicht
   reproduzierbar — ohne Messwerte aus einem echten LR-Lauf ist jeder Fix geraten, ein reiner
   Fix-Versuch kostet sonst einen zweiten LR-Lauf.
-- [ ] **Diagnose-Logging entfernen** (alle Blöcke mit `TODO(diagnostics): remove before release`).
-  **Entscheidung 2026-09-28 (User):** erst den LR-getesteten Stand committen, DANN das Logging
-  entfernen, erneut committen, dann pushen — der getestete Build bleibt so in der Historie
-  nachvollziehbar. Die Entfernung braucht danach einen kurzen LR-Smoke-Test (Dialog öffnen,
-  Vorschau ansehen), weil die Dateien dann erneut geändert sind.
-  Log-Ziel (bis dahin): `~/Documents/lrClassicLogs/StackRenamerLog.log` (Logger `StackRenamerLog`).
-  Zu beachten bei der Entfernung: die Diagnose-Helfer in **`RenameCore.lua`** (`diagDumpPhotos`/
-  `diagDumpGroups`) wrappen SDK-Reads noch in ein plain `pcall` und loggen deshalb
-  `<read failed: Yielding is not allowed within a C or metamethod call>` (Yielding ist in `pcall`
-  verboten). Fällt mit dem Logging weg.
+- [x] **Diagnose-Logging entfernt** (Commit 2, unabhängig verifiziert: reine Löschung, `luac -p` clean,
+  keine funktionale Zeile entfernt). Damit schreibt das Plugin NICHT mehr nach
+  `~/Documents/lrClassicLogs/StackRenamerLog.log`.
+  **Offen: Smoke-Test nach diesem Commit.** Die Dateien haben sich erneut geändert → Lightroom
+  Classic komplett neu starten (Regel in AGENTS.md) und Dialog einmal öffnen (Vorschau mehrzeilig,
+  Felder volle Breite). Das ist ein reiner Sichtcheck, keine neue Funktionalität.
 - [ ] **BUG (vom unabhängigen Verifier gefunden, noch offen): `RenameDialog.listFilesInFolder`**
   wrappt die yieldenden `LrFileUtils.files` / `LrFileUtils.directoryContents` in ein plain `pcall`.
   Folge: der Read kann fehlschlagen → die Funktion liefert `{}` → **die Ordner-Kollisionsprüfung
