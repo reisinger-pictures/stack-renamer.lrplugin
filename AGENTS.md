@@ -37,23 +37,16 @@ are treated as a stack of size 1**.
 
 ## Build-Agent Rule (STRICT — Orchestration only)
 
-This plugin is developed under the same Build-Agent policy as the portal repo
-(`portal.reisinger.pictures/AGENTS.md` §5). The Build Agent:
-
-1. **Does NOT write plugin code itself.** Implementation is delegated to a `general` subagent with
-   full context (this `AGENTS.md`, the plan, and the file list).
-2. May make **small edits only** (typo fixes, policy/`AGENTS.md`/`AGENTS.todo.md` adjustments).
-3. Owns `AGENTS.todo.md`: keeps actionable TODOs + open points there.
-4. **Verification is done by a SEPARATE, independent subagent — never the implementer.** The
-   verifier reviews the produced files, runs a Lua syntax check, and checks spec adherence, then
-   reports which TODOs are confirmed done.
-5. **Prunes `AGENTS.todo.md`**: only TODOs confirmed by the independent verifier are removed.
-   Unverified or failed items stay (or are re-added) with a note.
+The build/verify flow is defined centrally in the skill `build-verify` (repo `agents-skills`,
+always-on kernel `.agents/rules/build-verify.md`): pull first, orchestration only, independent
+verifier, commit after *every* verify round regardless of verdict, amend on redo, push + CI
+watch. It applies here unchanged — this `AGENTS.md` defines only *what* must be green in this
+repo, which is the "Definition of Done / Verification" section below.
 
 ## Definition of Done / Verification
 
 - **Lightroom Classic is required for functional verification** and is NOT available in this
-  environment. The implementer can only run a **Lua syntax check** (e.g. `luac -p` if present, or
+  environment. The only automatable check is a **Lua syntax check** (e.g. `luac -p` if present, or
   a stubbed check of `Utils` logic without SDK `import`s).
 - Functional checks (actual rename, sidecar handling, stack grouping, undo) MUST be done manually
   in Lightroom Classic — list them in `AGENTS.todo.md` as a manual checklist.
