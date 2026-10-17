@@ -38,7 +38,7 @@ are treated as a stack of size 1**.
 ## Build-Agent Rule (STRICT — Orchestration only)
 
 The build/verify flow is defined centrally in the skill `build-verify` (repo `agents-skills`,
-always-on kernel `.agents/rules/build-verify.md`): pull first, orchestration only, independent
+core rule `.agents/rules/build-verify.md`): pull first, orchestration only, independent
 verifier, commit after *every* verify round regardless of verdict, amend on redo, push + CI
 watch. It applies here unchanged — this `AGENTS.md` defines only *what* must be green in this
 repo, which is the "Definition of Done / Verification" section below.
