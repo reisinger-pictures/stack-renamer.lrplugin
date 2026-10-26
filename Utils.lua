@@ -138,7 +138,7 @@ end
 -- `photoInfo[photo]` and `seen[member]`. A plain string keyed by the catalog
 -- uuid is stable across wrapper instances.
 --
--- The virtual-copy flag (and, when present, the copy name) is appended so a
+-- The virtual-copy flag and the catalog-local identifier are appended, so a
 -- master and its virtual copies never share a key. Falls back to `path`, then
 -- to `tostring(photo)`. Never returns nil.
 function Utils.photoKey(photo)
@@ -151,26 +151,22 @@ function Utils.photoKey(photo)
     -- returns nil or "".
     local uuid = photo:getRawMetadata("uuid")
     local isVC = (photo:getRawMetadata("isVirtualCopy") == true)
-    local copyName = nil
+    -- `copyName` is NOT a valid getRawMetadata key (it exists only for
+    -- getFormattedMetadata/setRawMetadata). Reading it threw
+    -- 'Unknown key: "copyName"' as soon as the selection contained a virtual
+    -- copy. `photo.localIdentifier` (SDK 4.0) is the catalog row id, unique
+    -- within the catalog, so it separates a master from any number of virtual
+    -- copies without relying on a display-formatted string.
+    local copyTag = "|m"
     if isVC then
-        copyName = photo:getRawMetadata("copyName")
+        copyTag = "|vc|" .. tostring(photo.localIdentifier)
     end
     if type(uuid) == "string" and uuid ~= "" then
-        local k = "P:" .. uuid
-        if isVC then
-            k = k .. "|vc|" .. tostring(copyName or "")
-        else
-            k = k .. "|m"
-        end
-        return k
+        return "P:" .. uuid .. copyTag
     end
     local path = photo:getRawMetadata("path")
     if type(path) == "string" and path ~= "" then
-        local k = "P:path:" .. path
-        if isVC then
-            k = k .. "|vc|" .. tostring(copyName or "")
-        end
-        return k
+        return "P:path:" .. path .. copyTag
     end
     return "P:tostring:" .. tostring(photo)
 end

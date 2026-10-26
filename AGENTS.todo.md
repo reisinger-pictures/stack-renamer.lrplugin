@@ -196,6 +196,8 @@ beide sind behoben.
   Fotos; jede Stack-Zeile zeigt alle ihre Mitglieder; Sequenznummer läuft durch.
 - [ ] **Stacking unverändert** nach einem Durchlauf: Member-Anzahl + Reihenfolge des Stacks in
   Lightroom vorher/nachher vergleichen.
+- [ ] Auswahl mit virtueller Kopie → kein Fehler `Unknown key: "copyName"` mehr
+  (`getRawMetadata` kennt den Schlüssel nicht; `photoKey` nutzt jetzt `localIdentifier`).
 - [ ] F2 abgeschlossen: Dateien auf der Platte heißen `25_Island_02.CR3/.DNG/.JPEG` (nur Endung
   unterscheidet sich), XMP-Sidecars folgen, Katalog zeigt die neuen Namen.
 
