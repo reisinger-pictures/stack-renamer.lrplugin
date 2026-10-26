@@ -215,6 +215,60 @@ function Utils.stackKey(photo)
     return "U:" .. pkey
 end
 
+-- Return the HDR merge groups that are NOT Lightroom folder stacks.
+-- Lightroom creates a *collection* stack when HDR merging while a collection
+-- is the active source. The SDK cannot read collection stacks at all
+-- (`isInStackInFolder`/`stackInFolderMembers` are folder-only), so such a
+-- group reaches the plugin as separate photos and would get separate sequence
+-- numbers instead of one base + sub-numbers. Detect that symptom: a DNG named
+-- "*-HDR" plus at least one unstacked photo in the same folder whose capture
+-- time is within HDR_TIME_WINDOW seconds.
+-- Returns an array of { name = <DNG base name>, count = <source count> }.
+local HDR_TIME_WINDOW = 2.0
+
+local function photoBaseName(photo)
+    local fn = photo:getFormattedMetadata("fileName") or ""
+    return (string.match(fn, "^(.*)%.[^.]*$") or fn)
+end
+
+local function photoFolder(photo)
+    local path = photo:getRawMetadata("path") or ""
+    local dir = string.match(path, "^(.*)/[^/]*$")
+    return string.lower(dir or "")
+end
+
+function Utils.findUnstackedHdrGroups(photos)
+    local candidates = {}
+    for _, photo in ipairs(photos or {}) do
+        if photo:getRawMetadata("isVirtualCopy") ~= true
+            and photo:getRawMetadata("isInStackInFolder") ~= true then
+            local base = photoBaseName(photo)
+            table.insert(candidates, {
+                base = base,
+                anchor = (string.match(string.lower(base), "%-hdr$") ~= nil),
+                folder = photoFolder(photo),
+                time = photo:getRawMetadata("dateTimeOriginal"),
+            })
+        end
+    end
+    local out = {}
+    for _, a in ipairs(candidates) do
+        if a.anchor and a.time then
+            local count = 0
+            for _, b in ipairs(candidates) do
+                if b ~= a and not b.anchor and b.folder == a.folder
+                    and b.time and math.abs(b.time - a.time) <= HDR_TIME_WINDOW then
+                    count = count + 1
+                end
+            end
+            if count > 0 then
+                table.insert(out, { name = a.base, count = count })
+            end
+        end
+    end
+    return out
+end
+
 --------------------------------------------------------------------------------
 -- Collision detection
 --------------------------------------------------------------------------------

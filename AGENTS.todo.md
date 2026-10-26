@@ -187,6 +187,8 @@ beide sind behoben.
 - [ ] 3× CR3 im selben Stack (HDR-Ausgangslage) → `base`, `base-1`, `base-2`; Basisname bleibt
   bei allen erhalten (kein `_`-Name, keine Lücke in der Zählung).
 - [ ] Namensmuster `_` (nur Trennzeichen) → „Anwenden" blockiert mit Hinweis, kein `_.cr3`.
+- [ ] HDR-Gruppe als **Sammlungs**-Stack (DNG `*-HDR` + Quellen, kein Ordner-Stack) → Plugin
+  bricht mit Hinweis ab, schreibt nichts. Nach „im Ordner stacken": ein Stack, `base`, `base-1`, `base-2`.
 - [ ] Ordner-Kollision (Zielname existiert bereits im selben Ordner, nicht Teil des Plans)
   → „Anwenden" blockiert mit Ordner+Dateiname; gleicher Name in anderem Ordner → OK.
 - [ ] Single unstacked photo → renamed correctly (size-1 stack).

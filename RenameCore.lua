@@ -200,6 +200,30 @@ function RenameCore.run()
         return
     end
 
+    -- Guard: a HDR group that is a COLLECTION stack (typical when merging while
+    -- a collection is the active source) looks like separate photos to the SDK.
+    -- Renaming it would assign separate sequence numbers instead of one base
+    -- plus sub-numbers, so refuse with an explanation instead.
+    local hdrGroups = phaseOk("findUnstackedHdrGroups", function()
+        return Utils.findUnstackedHdrGroups(photos)
+    end)
+    if #hdrGroups > 0 then
+        local parts = {}
+        for _, g in ipairs(hdrGroups) do
+            table.insert(parts, "'" .. g.name .. "' + " .. g.count .. " Quelle(n)")
+        end
+        LrDialogs.message("HDR-Gruppe ist kein Ordner-Stack",
+            "Erkannt: " .. table.concat(parts, ", ") .. ".\n\n"
+            .. "Das Plug-in kann HDR-Gruppen nur als Ordner-Stack gruppieren. "
+            .. "Sammlungs-Stacks sind im Lightroom-SDK nicht lesbar, deshalb würden "
+            .. "die Dateien einzelne Sequenznummern bekommen statt eines Basisnamens "
+            .. "mit Unter-Nummern.\n\n"
+            .. "Bitte die Gruppe im Ordner stacken (Foto → Stapeln → In Stack "
+            .. "gruppieren) oder die HDR-Gruppe abwählen. Es wurde nichts geschrieben.",
+            "warning")
+        return
+    end
+
     local groups = phaseOk("buildGroups", function()
         return buildGroups(photos)
     end)

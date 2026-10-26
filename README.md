@@ -60,6 +60,10 @@ Alle Einstellungen werden beim Schließen persistiert (`LrPrefs`) und beim näch
 - **Stack-Erweiterung:** Selektierst du nur ein Foto eines Stacks, werden beim Umbenennen trotzdem
   **alle Stack-Mitglieder** erfasst (`stackInFolderMembers`).
 - **Virtuelle Kopien** werden übersprungen (sie teilen die Datei des Masters).
+- **HDR-Gruppen** werden nur als **Ordner-Stack** gruppiert. Ist eine Gruppe
+  `*-HDR.dng` + Quellen kein Ordner-Stack (z. B. Sammlungs-Stack aus einem HDR-Merge
+  in einer Sammlung), bricht das Plug-in mit Hinweis ab, statt einzelne
+  Sequenznummern zu vergeben. Sammlungs-Stacks kann das SDK nicht lesen.
 - Ein einziger `withWriteAccessDo`-Block pro Lauf → **ein Undo-Schritt**.
 - Kollisionsprüfung (case-insensitive): Bei doppelt vergebenen Basisnamen bleibt „Anwenden" deaktiviert.
 
