@@ -127,8 +127,9 @@ beide sind behoben.
 ## Implemented & verified (pruned from active TODOs)
 - [x] Same-extension numbering + folder collisions (verified DONE by independent subagent,
   `luac -p` clean, 14/15 stub tests pass — 1 fail was a bad test expectation, fixed via
-  leading-dot normalization in `assignNumberedBases`): per-stack `base`, `base-2`, `base-3`, …
-  (ext compare case-insensitive, ext case preserved); per-photo `perPhotoBases` in plan,
+  leading-dot normalization in `assignNumberedBases`): per-stack `base`, `base-1`, `base-2`, …
+  (ab der zweiten Datei desselben Typs; ursprünglich `base-2`/`base-3`;
+  ext compare case-insensitive, ext case preserved); per-photo `perPhotoBases` in plan,
   preview + `performRename` nutzen sie; Kollisionscheck auf finalen Dateinamen, ordner-scoped,
   case-insensitive, Plan-Quellen exkludiert; SDK pre-fetched außerhalb Observer;
   `canApply=false` + deutsche Meldung mit Ordner+Dateiname. — `Utils.lua`, `RenameDialog.lua`,
@@ -182,7 +183,10 @@ beide sind behoben.
 
 ## Manual Verification (Lightroom Classic required; NOT possible in this env)
 - [ ] 3-format stack (CR3+DNG+JPEG) → all three share the base name, only the extension differs.
-- [ ] 2× gleiche Endung in einem Stack (z.B. 2× JPG) → `base` + `base-2`, Vorschau zeigt beide.
+- [ ] 2× gleiche Endung in einem Stack (z.B. 2× JPG) → `base` + `base-1`, Vorschau zeigt beide.
+- [ ] 3× CR3 im selben Stack (HDR-Ausgangslage) → `base`, `base-1`, `base-2`; Basisname bleibt
+  bei allen erhalten (kein `_`-Name, keine Lücke in der Zählung).
+- [ ] Namensmuster `_` (nur Trennzeichen) → „Anwenden" blockiert mit Hinweis, kein `_.cr3`.
 - [ ] Ordner-Kollision (Zielname existiert bereits im selben Ordner, nicht Teil des Plans)
   → „Anwenden" blockiert mit Ordner+Dateiname; gleicher Name in anderem Ordner → OK.
 - [ ] Single unstacked photo → renamed correctly (size-1 stack).

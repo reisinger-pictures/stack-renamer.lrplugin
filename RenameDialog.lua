@@ -204,7 +204,7 @@ return function(groups)
                 -- Per-photo final bases: group real (non-VC) members by
                 -- lowercased extension in deterministic in-stack order. The
                 -- 1st file per extension keeps `base`, later ones get
-                -- `base-2`, `base-3`, ... Extension case stays untouched.
+                -- `base-1`, `base-2`, ... Extension case stays untouched.
                 local perPhotoBases = {}
                 local realOrdered = {}
                 for _, photo in ipairs(members) do
@@ -274,8 +274,16 @@ return function(groups)
             props.preview = table.concat(lines, "\n")
 
             local anyEmpty = false
+            local anySeparatorOnly = false
             for _, e in ipairs(plan) do
-                if e.base == "" then anyEmpty = true; break end
+                if e.base == "" then
+                    anyEmpty = true
+                elseif not string.find(e.base, "[^_%-%s]") then
+                    -- Only separators ('_', '-', spaces): the "name" would be
+                    -- just "_.cr3". F2 keeps that as-is, so the base name is
+                    -- effectively lost -- block it (2026-10-26 incident).
+                    anySeparatorOnly = true
+                end
             end
 
             local notes = {}
@@ -297,6 +305,10 @@ return function(groups)
                 props.canApply = false
             elseif anyEmpty then
                 props.collisionNote = "Das Namensmuster ergibt einen leeren Dateinamen."
+                props.canApply = false
+            elseif anySeparatorOnly then
+                props.collisionNote = "Das Namensmuster ergibt nur Trennzeichen ('_', '-'); "
+                    .. "der Basisname fehlt."
                 props.canApply = false
             elseif #plan == 0 then
                 props.collisionNote = "Keine Stacks zum Umbenennen."

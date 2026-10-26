@@ -253,11 +253,12 @@ function Utils.extensionWithDot(fileName)
 end
 
 -- Assign per-photo final base names for one stack.
--- The 1st file of each extension keeps `base`, the 2nd gets `base-2`, the 3rd
--- `base-3`, and so on. Extension comparison is case-insensitive (lowercased
--- key); the returned bases keep `base` untouched. `extList` holds extension
--- strings (with or without leading dot, any case) in deterministic in-stack
--- order. Returns an array of final bases aligned with `extList`.
+-- The 1st file of each extension keeps `base`, the 2nd gets `base-1`, the 3rd
+-- `base-2`, and so on (user decision 2026-10-26: count from 1 for the second
+-- file). Extension comparison is case-insensitive (lowercased key); the
+-- returned bases keep `base` untouched. `extList` holds extension strings (with
+-- or without leading dot, any case) in deterministic in-stack order. Returns an
+-- array of final bases aligned with `extList`.
 function Utils.assignNumberedBases(base, extList)
     local counts = {}
     local out = {}
@@ -269,7 +270,7 @@ function Utils.assignNumberedBases(base, extList)
         if n == 1 then
             out[i] = base
         else
-            out[i] = base .. "-" .. tostring(n)
+            out[i] = base .. "-" .. tostring(n - 1)
         end
     end
     return out

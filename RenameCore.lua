@@ -155,7 +155,11 @@ local function performRename(catalog, plan, metaField)
             summary = {
                 title = "Vorbereiten mit Fehlern",
                 msg = #errors .. " Datei(en) konnten nicht vorbereitet werden:\n\n"
-                    .. table.concat(errors, "\n"),
+                    .. table.concat(errors, "\n")
+                    .. "\n\nWICHTIG: F2 jetzt nicht ausführen. Lightroom würde "
+                    .. "Dateien ohne Wert im Feld '" .. fieldLabel
+                    .. "' beim Umbenennen zu '_' machen und damit den Basisnamen "
+                    .. "verlieren. Erst den Fehler beheben und erneut vorbereiten.",
                 kind = "critical",
             }
         elseif prepared > 0 then
@@ -167,7 +171,9 @@ local function performRename(catalog, plan, metaField)
                     .. "(Fotos → Fotos umbenennen…). In der File-Naming-Vorlage den "
                     .. "IPTC-Wert '" .. fieldLabel .. "' einfügen und bestätigen. "
                     .. "Lightroom benennt die Dateien dann inkl. Endungen und "
-                    .. "Sidecars korrekt um.",
+                    .. "Sidecars korrekt um.\n\n"
+                    .. "Nur vorbereitete Fotos auswählen: Bei Fotos ohne Wert in "
+                    .. "diesem Feld setzt Lightroom den Namen auf '_'.",
                 kind = "info",
             }
         end
