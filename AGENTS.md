@@ -78,3 +78,15 @@ part of the pattern.
 This file contains **rules only** — instructions that apply to any work in this repo. Durable
 decisions, rationale, measurements and history do not belong here but in `docs/`/`features/` or the
 project docs; open points go to `AGENTS.todo.md`; finished work lives in the git history.
+
+## Gates
+
+Regeln dieser Ebene. Was nur ein Verzeichnis betrifft, gehört in die
+`AGENTS.md` **dieses** Verzeichnisses — sie wird geladen, wenn eine Datei
+daraus gelesen wird.
+
+Ein Plan in `docs/plans/` beginnt mit `**Status:** Plan | In Arbeit | Done |
+Empfehlung, nicht implementiert`.
+
+Die kanonischen Agent-Regeln laufen über `ratchet` (Preset `agent-rules`):
+`ratchet check` vor jedem Commit und in der CI.
