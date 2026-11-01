@@ -58,7 +58,14 @@ return function(groups)
         -- Besides the display name it holds the containing folder and the
         -- extension (case preserved, with dot) used for per-photo numbering
         -- and folder-scoped collision checks.
+        -- `keyOf` maps the photo object to its key, so the observer path never
+        -- calls Utils.photoKey() again: that reads `getRawMetadata("uuid")`,
+        -- and catalog reads yield -- which raises "Yielding is not allowed
+        -- within a C or metamethod call" inside a property observer and
+        -- silently killed every live update (the initial preview, computed
+        -- before the dialog was presented, was the only one that survived).
         local photoInfo = {}
+        local keyOf = {}
         for _, g in ipairs(groups) do
             for _, photo in ipairs(g.photos) do
                 local fn = photo:getFormattedMetadata("fileName") or "?"
@@ -73,7 +80,9 @@ return function(groups)
                 if extWithDot ~= "" and string.sub(extWithDot, 1, 1) ~= "." then
                     extWithDot = "." .. extWithDot
                 end
-                photoInfo[Utils.photoKey(photo)] = {
+                local pkey = Utils.photoKey(photo)
+                keyOf[photo] = pkey
+                photoInfo[pkey] = {
                     isVC = (photo:getRawMetadata("isVirtualCopy") == true),
                     name = fn,
                     folder = folder,
@@ -152,7 +161,7 @@ return function(groups)
             local olds = {}
             local news = {}
             for _, photo in ipairs(entry.members or entry.group.photos) do
-                local pkey = Utils.photoKey(photo)
+                local pkey = keyOf[photo]
                 local pi = photoInfo[pkey]
                 if pi and not pi.isVC then
                     local fn = pi.name
@@ -208,20 +217,20 @@ return function(groups)
                 local perPhotoBases = {}
                 local realOrdered = {}
                 for _, photo in ipairs(members) do
-                    local pi = photoInfo[Utils.photoKey(photo)]
+                    local pi = photoInfo[keyOf[photo]]
                     if pi and not pi.isVC then
                         table.insert(realOrdered, photo)
                     end
                 end
                 local extList = {}
                 for _, photo in ipairs(realOrdered) do
-                    local pi = photoInfo[Utils.photoKey(photo)]
+                    local pi = photoInfo[keyOf[photo]]
                     table.insert(extList, (pi and pi.extKey) or "")
                 end
                 local numbered = Utils.assignNumberedBases(base, extList)
                 for idx, photo in ipairs(realOrdered) do
                     local finalBase = numbered[idx]
-                    local pkey = Utils.photoKey(photo)
+                    local pkey = keyOf[photo]
                     perPhotoBases[pkey] = finalBase
                     local pi = photoInfo[pkey]
                     local finalName = finalBase .. ((pi and pi.ext) or "")
@@ -319,7 +328,9 @@ return function(groups)
             end
         end
 
-        -- Initial compute + observers that keep the preview live.
+        -- Initial compute + observers that keep the preview live. The observer
+        -- body must stay yield-free: this callback runs where a catalog read
+        -- raises "Yielding is not allowed within a C or metamethod call".
         recompute()
         for _, key in ipairs({ "custom", "dateFmt", "start", "padding", "pattern", "sortOrder" }) do
             props:addObserver(key, function() recompute() end)
@@ -329,30 +340,39 @@ return function(groups)
             .. "{custom} (Freitext), {seq} (Laufnummer), {orig} (bisheriger Name). "
             .. "Die Dateiendung wird automatisch beibehalten."
 
+        -- Text fields must commit on every keystroke: without `immediate`, the
+        -- bound value only changes when the field loses focus (macOS: only via
+        -- Tab/Enter, clicking outside does NOT commit), so the live preview
+        -- stayed stale while typing. `immediate = true` posts the value after
+        -- each keystroke.
+        -- The content column is 640 px wide (see `contents`); the preview uses
+        -- it fully, minus the width of its vertical scroller.
+        local PREVIEW_WIDTH = 640
+        local PREVIEW_SCROLLBAR = 16
         local contents = f:column {
             spacing = f:control_spacing(),
             width = 640,
             f:static_text { title = "Einstellungen", font = "<system/bold>" },
             f:row {
                 f:static_text { title = "Freitext:", width = 120 },
-                f:edit_field { value = LrView.bind { key = "custom", bind_to_object = props }, fill_horizontal = 1 }
+                f:edit_field { value = LrView.bind { key = "custom", bind_to_object = props }, immediate = true, fill_horizontal = 1 }
             },
             f:row {
                 f:static_text { title = "Datumsformat:", width = 120 },
-                f:edit_field { value = LrView.bind { key = "dateFmt", bind_to_object = props }, width_in_chars = 12, placeholder_string = "DD" },
+                f:edit_field { value = LrView.bind { key = "dateFmt", bind_to_object = props }, immediate = true, width_in_chars = 12, placeholder_string = "DD" },
                 f:static_text { title = "(z. B. DD, YY, YYYYMMDD)", text_color = LrColor(0.5, 0.5, 0.5) }
             },
             f:row {
                 f:static_text { title = "Startnummer:", width = 120 },
-                f:edit_field { value = LrView.bind { key = "start", bind_to_object = props }, width_in_chars = 6 }
+                f:edit_field { value = LrView.bind { key = "start", bind_to_object = props }, immediate = true, width_in_chars = 6 }
             },
             f:row {
                 f:static_text { title = "Auffüllen (Padding):", width = 120 },
-                f:edit_field { value = LrView.bind { key = "padding", bind_to_object = props }, width_in_chars = 6 }
+                f:edit_field { value = LrView.bind { key = "padding", bind_to_object = props }, immediate = true, width_in_chars = 6 }
             },
             f:row {
                 f:static_text { title = "Namensmuster:", width = 120 },
-                f:edit_field { value = LrView.bind { key = "pattern", bind_to_object = props }, fill_horizontal = 1 }
+                f:edit_field { value = LrView.bind { key = "pattern", bind_to_object = props }, immediate = true, fill_horizontal = 1 }
             },
             f:row {
                 f:static_text { title = "Sortierung:", width = 120 },
@@ -371,21 +391,48 @@ return function(groups)
             f:separator { fill_horizontal = 1 },
             f:spacer { height = 5 },
             f:static_text { title = "Vorschau (alt → neu)", font = "<system/bold>" },
-            -- The preview is a read-only multi-line edit_field: a bound
-            -- static_text did not grow with the string and stayed one line
-            -- tall. scrolled_view cannot auto-size to the dialog, so it gets a
-            -- large fixed height and scrolls; the edit_field itself is tall
-            -- enough that normal selections fit without an inner scrollbar.
+            -- The preview is a multi-line edit_field: a bound static_text did
+            -- not grow with the string and stayed one line tall. scrolled_view
+            -- cannot auto-size to the dialog, so it gets a large fixed height
+            -- and scrolls; the edit_field itself is tall enough that normal
+            -- selections fit without an inner scrollbar.
+            -- Full width needs explicit pixels: inside a `scrolled_view` the
+            -- field keeps its own (text-derived) width -- `fill_horizontal` on
+            -- the field did not stretch it to the column width there.
+            -- The scroll-bar dimensions are named `*_scroller`; a `*_scrollbar`
+            -- key is silently ignored (LrView only knows `vertical_scroller`,
+            -- `horizontal_scroller`, `has_*_scroller`).
+            -- `readonly` is NOT an edit_field property (the SDK ignores it),
+            -- so input is discarded in the binding's transform. `immediate`
+            -- makes that happen per keystroke instead of only on commit.
             f:scrolled_view {
                 fill_horizontal = 1,
+                width = PREVIEW_WIDTH,
                 height = 420,
-                vertical_scrollbar = true,
-                horizontal_scrollbar = false,
+                vertical_scroller = true,
+                horizontal_scroller = false,
                 f:edit_field {
-                    value = LrView.bind { key = "preview", bind_to_object = props },
+                    value = LrView.bind {
+                        key = "preview",
+                        bind_to_object = props,
+                        transform = function(value, fromTable)
+                            -- Model -> view: pass the computed plan through.
+                            if fromTable then return value end
+                            -- View -> model: write the computed text back
+                            -- through two distinct values so the field
+                            -- repaints; with an empty plan ("" -> "") the
+                            -- writes would notify nobody and typed text would
+                            -- stay visible.
+                            local planned = props.preview or ""
+                            if planned == "" then props.preview = " " end
+                            props.preview = ""
+                            props.preview = planned
+                            return planned
+                        end,
+                    },
+                    immediate = true,
+                    width = PREVIEW_WIDTH - PREVIEW_SCROLLBAR,
                     height_in_lines = 200,
-                    fill_horizontal = 1,
-                    readonly = true,
                 },
             },
             f:static_text {
